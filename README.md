@@ -1,50 +1,46 @@
-# VerneMQ: A Distributed MQTT Broker
+# ConnectMQ: Apache 2.0 MQTT Broker
 
-![Build and Smoketest Status](https://github.com/vernemq/vernemq/actions/workflows/pr.yml/badge.svg)
-<a href="https://docs.vernemq.com">
-		<img alt="Documentation" src="https://img.shields.io/badge/documentation-yes-brightgreen.svg" target="_blank" />
-	</a>
-	<a href="https://github.com/vernemq/vernemq/graphs/commit-activity">
-		<img alt="Maintenance" src="https://img.shields.io/badge/maintained-yes-green.svg" target="_blank" />
-	</a>
-<a href="https://github.com/vernemq/vernemq/releases/latest">
-<img alt="GitHub Release Date" src="https://img.shields.io/github/release-date/vernemq/vernemq"></a>
-<a href="https://github.com/vernemq/vernemq/commits/main">
-<img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/vernemq/vernemq"></a>
-<a href="https://twitter.com/vernemq">
-		<img
-			alt="Twitter: VerneMQ"
-			src="https://img.shields.io/twitter/follow/vernemq.svg?style=social"
-			target="_blank"
-		/>
-	</a>
- <a href="https://fosstodon.org/@VerneMQ">
- <img alt="VerneMQ on Fosstodon" src="https://img.shields.io/mastodon/follow/110683123510225618?domain=https%3A%2F%2Ffosstodon.org"></a>
+> **ConnectMQ** is a fork of [VerneMQ](https://github.com/vernemq/vernemq) - built from source with **Apache 2.0 license only**, no proprietary EULA.
 
-[![Google group : VerneMQ Users](https://img.shields.io/badge/Google%20Group-VerneMQ%20Users-blue.svg)](https://groups.google.com/forum/#!forum/vernemq-users)
-Old Docker Repo | New Docker Repo
------------- | -------------
-[![Docker Pulls from Old Repo](https://img.shields.io/docker/pulls/erlio/docker-vernemq.svg)](https://hub.docker.com/r/erlio/docker-vernemq/)|[![Docker Pulls from New Repo](https://img.shields.io/docker/pulls/vernemq/vernemq.svg)](https://hub.docker.com/r/vernemq/vernemq/)
+![Build Status](https://github.com/connect-iot-bv/connectmq/actions/workflows/release.yml/badge.svg)
+## Key Differences from Upstream VerneMQ
 
-New: VerneMQ can now use Github Discussions! To join the discussion on features and roadmap, and be part of the <strong>VerneMQ Community Team</strong> on Github, send us your Github username for an invite! (on Twitter, Slack etc.)
+- ✅ **Pure Apache 2.0** - No proprietary licensing or EULA restrictions
+- ✅ **Multi-architecture** - Native AMD64 and ARM64 builds  
+- ✅ **Built from source** - Full transparency, no precompiled binaries
+- ✅ **Automated releases** - GitHub Actions build and release pipeline
 
-Make sure to visit the new [VerneMQ Forum](https://erlangforums.com/c/erlang-platforms/vernemq-forum/82) hosted on Erlang Forums. We're happy to discuss any of your questions and ideas around VerneMQ on the Forum too!
+## Quick Start
 
-- - -
+### Download Pre-built Binaries
 
-VerneMQ is known to be deployed and used in: :us: :canada: :brazil: :mexico: :de: :fr: :switzerland: :denmark: :netherlands: :belgium: :it: :es: :romania: :portugal: :ru: :lithuania: :czech_republic: :slovakia: :austria: :poland: :norway: :sweden: :india: :jp: :indonesia: :vietnam: :kr: :south_africa: :kenya: :serbia: :croatia: :greece: :uk: :ukraine: :australia: :new_zealand: :cn: :egypt: :finland: :hungary: :israel: :singapore: :lebanon: :philippines: :pakistan: :malaysia: :tr: :taiwan: :iran: :cloud:
+```bash
+# Download latest release for your architecture
+wget https://github.com/connect-iot-bv/connectmq/releases/latest/download/connectmq-v*-linux-amd64.tar.gz
+# or
+wget https://github.com/connect-iot-bv/connectmq/releases/latest/download/connectmq-v*-linux-arm64.tar.gz
+
+# Extract and run
+tar -xzf connectmq-v*-linux-*.tar.gz
+cd vernemq
+bin/vernemq start
+```
+
+### System Requirements
+
+- **Linux**: Ubuntu 20.04+, Debian 11+, RHEL 8+
+- **Dependencies**: `libsnappy1v5` (install with `apt-get install libsnappy1v5`)
+- **Architecture**: AMD64 (x86_64) or ARM64 (aarch64)
 
 ---
-[![VerneMQ Logo](https://i.imgur.com/bln3fK3.jpg)](https://vernemq.com)
 
-VerneMQ is a high-performance, distributed MQTT message broker. It scales
-horizontally and vertically on commodity hardware to support a high number of
-concurrent publishers and consumers while maintaining low latency and fault
-tolerance. VerneMQ is the reliable message hub for your IoT platform or smart
-products.
+## About VerneMQ
 
-VerneMQ is an Apache2 licensed distributed [MQTT](http://www.mqtt.org) broker,
-developed in [Erlang](http://www.erlang.org).
+ConnectMQ is built on **VerneMQ**, a high-performance, distributed MQTT message broker. It scales horizontally and vertically on commodity hardware to support a high number of concurrent publishers and consumers while maintaining low latency and fault tolerance.
+
+**Original VerneMQ** is developed by the VerneMQ team and available at [github.com/vernemq/vernemq](https://github.com/vernemq/vernemq).
+
+VerneMQ is an Apache2 licensed distributed [MQTT](http://www.mqtt.org) broker, developed in [Erlang](http://www.erlang.org).
 
 MQTT used to stand for MQ Telemetry Transport, but it no longer is an
 acronym. It is an extremely simple and lightweight publish/subscribe messaging

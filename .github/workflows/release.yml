@@ -1,0 +1,159 @@
+---
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build'
+        required: true
+        type: string
+
+env:
+  DEFAULT_RELEASE_OTP: 27.3
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64  
+            runner: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsnappy-dev build-essential cmake git
+
+      - name: Install Erlang/OTP
+        uses: erlef/setup-beam@v1.20.4
+        with:
+          otp-version: ${{ env.DEFAULT_RELEASE_OTP }}
+
+      - name: Cache _build/default
+        uses: actions/cache@v4
+        with:
+          path: _build/default
+          key: ${{ runner.os }}-${{ matrix.arch }}-build-default-${{ env.DEFAULT_RELEASE_OTP }}-${{ hashFiles('rebar.lock') }}
+
+      - name: Cache rebar3
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rebar3
+          key: ${{ runner.os }}-${{ matrix.arch }}-rebar3-${{ env.DEFAULT_RELEASE_OTP }}-${{ hashFiles('rebar.lock') }}
+
+      - name: Build release
+        run: |
+          make rel
+          
+      - name: Verify build
+        if: matrix.arch == 'amd64'
+        run: |
+          # Only run verification on amd64 architecture
+          ./_build/default/rel/vernemq/bin/vernemq config generate -l info
+          echo "Build verification completed"
+
+      - name: Create archive
+        run: |
+          cd _build/default/rel
+          tar -czf ../../../connectmq-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz vernemq/
+
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: connectmq-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}
+          path: connectmq-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ConnectMQ ${{ steps.version.outputs.version }}
+          body: |
+            # ConnectMQ ${{ steps.version.outputs.version }}
+            
+            ## Apache 2.0 Licensed MQTT Broker
+            
+            This is ConnectMQ, a fork of VerneMQ built from source with **Apache 2.0 license only**.
+            
+            ### What's included:
+            - ✅ **No proprietary EULA** - Pure Apache 2.0 license
+            - ✅ **Built from source** - Full transparency 
+            - ✅ **Multi-architecture support** - Linux amd64/arm64
+            - ✅ **Free to use** - No licensing restrictions
+            
+            ### Supported Platforms:
+            - `linux-amd64` - Linux x86_64
+            - `linux-arm64` - Linux ARM64/aarch64
+            
+            ### Quick Start:
+            1. Download the appropriate archive for your platform
+            2. Extract: `tar -xzf connectmq-${{ steps.version.outputs.version }}-<platform>.tar.gz`
+            3. Run: `./vernemq/bin/vernemq start`
+            
+            ### Checksums:
+            See `checksums.txt` for SHA256 verification.
+            
+            Built with ❤️ by Connect IoT BV
+          files: |
+            release-assets/*
+          draft: false
+          prerelease: false
