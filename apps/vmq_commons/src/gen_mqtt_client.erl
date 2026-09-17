@@ -20,6 +20,7 @@
 
 -ifdef(nowarn_gen_fsm).
 -compile([
+    nowarn_deprecated_callback,
     {nowarn_deprecated_function, [
         {gen_fsm, start, 3},
         {gen_fsm, start, 4},
@@ -28,6 +29,7 @@
         {gen_fsm, send_event, 2},
         {gen_fsm, send_all_state_event, 2},
         {gen_fsm, sync_send_all_state_event, 2},
+        {gen_fsm, sync_send_all_state_event, 3},
         {gen_fsm, send_event_after, 2},
         {gen_fsm, cancel_timer, 1}
     ]}
@@ -149,7 +151,7 @@
     pubrel_queue = #queue{} :: queue(),
     waiting_acks = maps:new() :: map(),
     unacked_msgs = maps:new() :: map(),
-    ping_tref :: timer:ref() | undefined,
+    ping_tref :: reference() | undefined,
     reconnect_timeout,
     keepalive_interval = 60000,
     retry_interval = 10000,

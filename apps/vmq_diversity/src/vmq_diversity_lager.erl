@@ -17,6 +17,8 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("luerl/include/luerl.hrl").
 
+-compile({no_auto_import, [error/2]}).
+
 -export([install/1]).
 
 install(St) ->
@@ -25,7 +27,7 @@ install(St) ->
 table() ->
     [
         {<<"info">>, #erl_func{code = fun info/2}},
-        {<<"error">>, #erl_func{code = fun error/2}},
+        {<<"error">>, #erl_func{code = fun log_error/2}},
         {<<"debug">>, #erl_func{code = fun debug/2}},
         {<<"warning">>, #erl_func{code = fun warning/2}}
     ].
@@ -34,7 +36,7 @@ info([Bin], St) when is_binary(Bin) ->
     ?LOG_INFO(esc(Bin), []),
     {[], St}.
 
-error([Bin], St) when is_binary(Bin) ->
+log_error([Bin], St) when is_binary(Bin) ->
     ?LOG_ERROR(esc(Bin), []),
     {[], St}.
 

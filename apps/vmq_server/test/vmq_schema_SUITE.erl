@@ -36,15 +36,24 @@ groups() ->
     Tests =
         [proxy_protocol_inheritance_test,
          proxy_protocol_override_test,
+         forward_connection_opts_inheritance_test,
          ssl_certs_opts_inheritance_test,
          ssl_certs_opts_override_test,
-         allowed_protocol_versions_inheritance_test,
-         allowed_protocol_versions_override_test,
-         allowed_eccs_test,
+          allow_anonymous_override_test,
+          allowed_protocol_versions_inheritance_test,
+          allowed_protocol_versions_override_test,
+          active_n_inheritance_test,
+          active_n_override_test,
+          allowed_eccs_test,
          default_eccs_test,
          invalid_eccs_test,
-         tls_handshake_timeout_test
-        ],
+         tls_handshake_timeout_test,
+         syslog_test,
+         listener_auth_plugin_chain_test,
+         listener_authz_plugin_chain_test,
+         listener_auth_plugin_unknown_plugin_test,
+         listener_auth_plugin_duplicate_test
+         ],
     [{schema, [parallel], Tests}].
 
 all() ->
@@ -228,6 +237,40 @@ proxy_protocol_override_test(_Config) ->
     true = expect(Conf, [vmq_server, listeners, http,  {{127,0,0,1}, 8888},proxy_protocol]),
     true = expect(Conf, [vmq_server, listeners, mqttws,{{127,0,0,1}, 800}, proxy_protocol]).
 
+forward_connection_opts_inheritance_test(_Config) ->
+    Conf = [
+            %% tcp/mqtt
+            {["listener","tcp","forward_connection_opts"], "on"},
+            {["listener","tcp","default"],"127.0.0.1:1884"},
+            %% websocket
+            {["listener","ws","forward_connection_opts"], "on"},
+            {["listener","ws","default"],"127.0.0.1:800"}
+            | global_substitutions()
+           ],
+    true = expect(Conf, [vmq_server, listeners, mqtt,   {{127,0,0,1}, 1884}, forward_connection_opts]),
+    true = expect(Conf, [vmq_server, listeners, mqttws, {{127,0,0,1}, 800},  forward_connection_opts]).
+
+allow_anonymous_override_test(_Config) ->
+    Conf = [
+            %% tcp/mqtt
+            {["listener","tcp","default"],"127.0.0.1:1884"},
+            {["listener","tcp","default","allow_anonymous_override"], "on"},
+            %% tcp/ssl/mqtt
+            {["listener","ssl","default"],"127.0.0.1:8884"},
+            {["listener","ssl","default","allow_anonymous_override"], "on"},
+            %% websocket
+            {["listener","ws","default"],"127.0.0.1:800"},
+            {["listener","ws","default","allow_anonymous_override"], "on"},
+            %% websocket/ssl
+            {["listener","wss","default"],"127.0.0.1:900"},
+            {["listener","wss","default","allow_anonymous_override"], "on"}
+            | global_substitutions()
+           ],
+    true = expect(Conf, [vmq_server, listeners, mqtt, {{127,0,0,1}, 1884}, allow_anonymous_override]),
+    true = expect(Conf, [vmq_server, listeners, mqtts, {{127,0,0,1}, 8884}, allow_anonymous_override]),
+    true = expect(Conf, [vmq_server, listeners, mqttws, {{127,0,0,1}, 800}, allow_anonymous_override]),
+    true = expect(Conf, [vmq_server, listeners, mqttwss, {{127,0,0,1}, 900}, allow_anonymous_override]).
+
 allowed_protocol_versions_inheritance_test(_Config) ->
     Conf = [
             %% tcp/mqtt
@@ -308,6 +351,34 @@ allowed_protocol_versions_override_test(_Config) ->
     [4] = expect(Conf, [vmq_server, listeners, mqttws,{{127,0,0,1}, 800}, allowed_protocol_versions]),
     [4] = expect(Conf, [vmq_server, listeners, mqttwss,{{127,0,0,1}, 900}, allowed_protocol_versions]).
 
+active_n_inheritance_test(_Config) ->
+    Conf = [
+            %% tcp/mqtt
+            {["listener","tcp","active_n"], "10"},
+            {["listener","tcp","default"],"127.0.0.1:1884"},
+            %% tcp/ssl/mqtt
+            {["listener","ssl","active_n"], "20"},
+            {["listener","ssl","default"],"127.0.0.1:8884"}
+            | global_substitutions()
+           ],
+    10 = expect(Conf, [vmq_server, listeners, mqtt, {{127,0,0,1}, 1884}, active_n]),
+    20 = expect(Conf, [vmq_server, listeners, mqtts, {{127,0,0,1}, 8884}, active_n]).
+
+active_n_override_test(_Config) ->
+    Conf = [
+            %% tcp/mqtt
+            {["listener","tcp","active_n"], "10"},
+            {["listener","tcp","default"],"127.0.0.1:1884"},
+            {["listener","tcp","default","active_n"], "100"},
+            %% tcp/ssl/mqtt
+            {["listener","ssl","active_n"], "20"},
+            {["listener","ssl","default"],"127.0.0.1:8884"},
+            {["listener","ssl","default","active_n"], "200"}
+            | global_substitutions()
+           ],
+    100 = expect(Conf, [vmq_server, listeners, mqtt, {{127,0,0,1}, 1884}, active_n]),
+    200 = expect(Conf, [vmq_server, listeners, mqtts, {{127,0,0,1}, 8884}, active_n]).
+
 tls_handshake_timeout_test(_Config) ->
     Conf = [
             %% tcp/ssl/mqtt
@@ -329,6 +400,87 @@ tls_handshake_timeout_test(_Config) ->
     2000 = expect(Conf, [vmq_server, listeners, vmqs,  {{127,0,0,1}, 1234}, tls_handshake_timeout]),
     infinity = expect(Conf, [vmq_server, listeners, https,  {{127,0,0,1}, 443}, tls_handshake_timeout]).
 
+syslog_test(Config) ->
+    CAFile = dummy_file(Config, "syslog-ca.crt"),
+    rfc3164 = expect_vmq(
+        [{["log", "syslog"], "on"}],
+        [syslog, protocol]),
+    BaseConf = [
+        {["log", "syslog"], "on"},
+        {["log", "syslog", "remote", "host"], "syslog.example.com"},
+        {["log", "syslog", "remote", "port"], "6514"},
+        {["log", "syslog", "facility"], "local0"}
+    ],
+    {rfc3164, udp} = expect_vmq(
+        [{["log", "syslog", "remote", "protocol"], "udp"} | BaseConf],
+        [syslog, protocol]),
+    {rfc5424, udp} = expect_vmq(
+        [{["log", "syslog", "format"], "rfc5424"} | BaseConf],
+        [syslog, protocol]),
+    {rfc5424, tcp} = expect_vmq(
+        [{["log", "syslog", "format"], "rfc5424"},
+         {["log", "syslog", "remote", "protocol"], "tcp"} | BaseConf],
+        [syslog, protocol]),
+    {rfc5424, tls, [{verify, verify_peer}, {cacertfile, CAFile}]} = expect_vmq(
+        [{["log", "syslog", "format"], "rfc5424"},
+         {["log", "syslog", "remote", "protocol"], "tls"},
+         {["log", "syslog", "remote", "tls", "cafile"], CAFile} | BaseConf],
+        [syslog, protocol]),
+    case catch expect_vmq(
+        [{["log", "syslog", "remote", "protocol"], "tls"},
+         {["log", "syslog", "remote", "tls", "cafile"], CAFile} | BaseConf],
+        [syslog, protocol]) of
+        {{error, apply_translations, _}, _} -> ok;
+        _ -> ct:fail("Expected TLS SysLog to require rfc5424 format")
+    end,
+    "vernemq" = expect_vmq(
+        [{["log", "syslog", "app_name"], "vernemq"} | BaseConf],
+        [syslog, app_name]),
+    "syslog.example.com" = expect_vmq(BaseConf, [syslog, dest_host]),
+    6514 = expect_vmq(BaseConf, [syslog, dest_port]),
+    local0 = expect_vmq(BaseConf, [syslog, facility]).
+
+listener_auth_plugin_chain_test(_Config) ->
+    Conf = [
+            {["plugins", "vmq_webhooks"], "on"},
+            {["listener", "tcp", "default"], "127.0.0.1:1884"},
+            {["listener", "tcp", "default", "auth_plugins"], "[vmq_passwd, vmq_webhooks]"}
+            | global_substitutions()
+           ],
+    [vmq_passwd, vmq_webhooks] = expect(Conf, [
+        vmq_server, listeners, mqtt, {{127, 0, 0, 1}, 1884}, auth_plugins
+    ]).
+
+listener_authz_plugin_chain_test(_Config) ->
+    Conf = [
+            {["listener", "tcp", "default"], "127.0.0.1:1884"},
+            {["listener", "tcp", "default", "authz_plugins"], "[vmq_acl]"}
+            | global_substitutions()
+           ],
+    [vmq_acl] = expect(Conf, [vmq_server, listeners, mqtt, {{127, 0, 0, 1}, 1884}, authz_plugins]).
+
+listener_auth_plugin_unknown_plugin_test(_Config) ->
+    Conf = [
+            {["listener", "tcp", "default"], "127.0.0.1:1884"},
+            {["listener", "tcp", "default", "auth_plugins"], "[unknown_plugin]"}
+            | global_substitutions()
+           ],
+    case catch expect(Conf, [vmq_server, listeners, mqtt, {{127, 0, 0, 1}, 1884}, auth_plugins]) of
+        {{error, apply_translations, _}, _} -> ok;
+        _ -> ct:fail("Expected translation failure for unknown listener auth plugin")
+    end.
+
+listener_auth_plugin_duplicate_test(_Config) ->
+    Conf = [
+            {["listener", "tcp", "default"], "127.0.0.1:1884"},
+            {["listener", "tcp", "default", "auth_plugins"], "[vmq_passwd, vmq_passwd]"}
+            | global_substitutions()
+           ],
+    case catch expect(Conf, [vmq_server, listeners, mqtt, {{127, 0, 0, 1}, 1884}, auth_plugins]) of
+        {{error, apply_translations, _}, _} -> ok;
+        _ -> ct:fail("Expected translation failure for duplicate listener auth plugin")
+    end.
+
 -define(stacktrace, try throw(foo) catch _:foo:Stacktrace -> Stacktrace end).
 
 expect(Conf, Setting) ->
@@ -340,6 +492,19 @@ expect(Conf, Setting) ->
         Gen ->
             deep_find(Gen, Setting)
     end.
+
+expect_vmq(Conf, Setting) ->
+    Schema = cuttlefish_schema:files([root_schema_file()]),
+    case cuttlefish_generator:map(Schema, Conf ++ [{["log", "console"], "off"}]) of
+        {error, _, _} = Error ->
+            StackTrace = ?stacktrace,
+            throw({Error, StackTrace});
+        Generated ->
+            deep_find(Generated, Setting)
+    end.
+
+root_schema_file() ->
+    filename:join([code:lib_dir(vmq_server), "..", "..", "..", "..", "files", "vmq.schema"]).
 
 deep_find(Value, []) ->
     Value;

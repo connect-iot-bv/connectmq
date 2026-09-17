@@ -24,6 +24,8 @@
 
 -ifdef(nowarn_gen_fsm).
 -compile([
+    nowarn_deprecated_function,
+    nowarn_deprecated_callback,
     {nowarn_deprecated_function, [
         {gen_fsm, start_link, 3},
         {gen_fsm, reply, 2},
@@ -44,6 +46,7 @@
     notify/1,
     notify_recv/1,
     enqueue/2,
+    enqueue_deliver/3,
     front/2,
     status/1,
     info/1,
@@ -80,8 +83,8 @@
 ]).
 
 -record(queue, {
-    queue = queue:new(),
-    backup = queue:new(),
+    queue = queue:new() :: queue:queue(),
+    backup = queue:new() :: queue:queue(),
     type = fifo,
     max,
     ignore_max = false,
@@ -106,7 +109,7 @@
     expiry_timer :: undefined | reference(),
     drain_time,
     drain_over_timer,
-    drain_pending_batch :: undefined | {reference(), reference(), queue:new()},
+    drain_pending_batch :: undefined | {reference(), reference(), queue:queue()},
     max_msgs_per_drain_step,
     waiting_call,
     opts,
@@ -141,6 +144,13 @@ notify_recv(Queue) when is_pid(Queue) ->
 
 enqueue(Queue, Msg) when is_pid(Queue) ->
     gen_fsm:send_event(Queue, {enqueue, to_internal(Msg)}).
+
+enqueue_deliver(Queue, 0, Msg) when is_pid(Queue) ->
+    Queue ! {'$gen_event', {enqueue_qos0, Msg}},
+    ok;
+enqueue_deliver(Queue, QoS, Msg) when is_pid(Queue) ->
+    Queue ! {'$gen_event', {enqueue, #deliver{qos = QoS, msg = Msg}}},
+    ok.
 
 front(Queue, Msg) when is_pid(Queue) ->
     gen_fsm:send_event(Queue, {front, to_internal(Msg)}).
@@ -251,6 +261,9 @@ online({notify_recv, SessionPid}, #state{id = SId, sessions = Sessions} = State)
 online({enqueue, Msg}, State) ->
     _ = vmq_metrics:incr_queue_in(),
     {next_state, online, insert(Msg, State)};
+online({enqueue_qos0, Msg}, State) ->
+    _ = vmq_metrics:incr_queue_in(),
+    {next_state, online, insert(#deliver{qos = 0, msg = Msg}, State)};
 online({front, Msg}, State) ->
     _ = vmq_metrics:incr_queue_in(),
     State0 = State#state{insert_fun = front},
@@ -309,9 +322,28 @@ online(Event, _From, State) ->
     ?LOG_ERROR("got unknown sync event in online state ~p", [Event]),
     {reply, {error, online}, State}.
 
+%% A session we are draining can report a state change ({change_state, ...} via
+%% active/1 or notify/1) instead of going 'DOWN'; handle it here so the catch-all
+%% doesn't swallow it and wedge the takeover in wait_for_offline (#571, #1369).
+%% Re-disconnect a tracked session; ignore an untracked pid (the pending
+%% replacement in waiting_call) so we don't disconnect the newcomer.
+wait_for_offline({change_state, _NewSessionState, SessionPid}, State) ->
+    case maps:is_key(SessionPid, State#state.sessions) of
+        true ->
+            vmq_mqtt_fsm_util:send(
+                SessionPid,
+                {disconnect, disconnect_reason(State#state.waiting_call)}
+            ),
+            {next_state, wait_for_offline, State};
+        false ->
+            {next_state, wait_for_offline, State}
+    end;
 wait_for_offline({enqueue, Msg}, State) ->
     _ = vmq_metrics:incr_queue_in(),
     {next_state, wait_for_offline, insert(Msg, State)};
+wait_for_offline({enqueue_qos0, Msg}, State) ->
+    _ = vmq_metrics:incr_queue_in(),
+    {next_state, wait_for_offline, insert(#deliver{qos = 0, msg = Msg}, State)};
 wait_for_offline(Event, State) ->
     ?LOG_ERROR("got unknown event in wait_for_offline state ~p", [Event]),
     {next_state, wait_for_offline, State}.
@@ -438,6 +470,14 @@ drain({enqueue, Msg}, #state{drain_over_timer = TRef} = State) ->
     gen_fsm:send_event(self(), drain_start),
     _ = vmq_metrics:incr_queue_in(),
     {next_state, drain, insert(Msg, State)};
+drain({enqueue_qos0, Msg}, #state{drain_over_timer = TRef} = State) ->
+    %% even in drain state it is possible that an enqueue message
+    %% reaches this process, so we've to queue this message otherwise
+    %% it would be lost.
+    gen_fsm:cancel_timer(TRef),
+    gen_fsm:send_event(self(), drain_start),
+    _ = vmq_metrics:incr_queue_in(),
+    {next_state, drain, insert(#deliver{qos = 0, msg = Msg}, State)};
 drain(
     drain_over,
     #state{waiting_call = {migrate, _, From}} =
@@ -505,6 +545,9 @@ offline({enqueue, Enq}, #state{id = SId} = State) ->
     %% storing the message in the offline queue
     _ = vmq_metrics:incr_queue_in(),
     {next_state, offline, insert(Enq, State)};
+offline({enqueue_qos0, Msg}, State) ->
+    _ = vmq_metrics:incr_queue_in(),
+    {next_state, offline, insert(#deliver{qos = 0, msg = Msg}, State)};
 offline(expire_session, #state{id = SId, offline = #queue{queue = Q}} = State) ->
     %% session has expired cleanup and go down
     vmq_plugin:all(on_topic_unsubscribed, [SId, all_topics]),
@@ -880,7 +923,7 @@ handle_session_down(
                     _ = vmq_plugin:all(on_client_offline, [SId])
             end,
             {next_state, state_change({'DOWN', add_session}, wait_for_offline, online),
-                add_session_(NewSessionPid, Opts, NewState#state{waiting_call = undefined}, false)};
+                add_session_(NewSessionPid, Opts, NewState#state{waiting_call = undefined}, true)};
         {0, wait_for_offline, {migrate, _, From}} when
             DeletedSession#session.cleanup_on_disconnect
         ->
@@ -985,6 +1028,20 @@ disconnect_sessions(Reason, #state{sessions = Sessions}) ->
         ok,
         Sessions
     ).
+
+%% Maps the queue's pending waiting_call to the disconnect reason that was
+%% originally used to disconnect the currently attached sessions, so that a session
+%% which re-activated mid-takeover (see wait_for_offline/2) is re-disconnected with
+%% a consistent reason. In wait_for_offline the waiting_call is always set; the
+%% undefined clause is a defensive default and never expected in practice.
+disconnect_reason({add_session, _SessionPid, _Opts, _From}) ->
+    ?SESSION_TAKEN_OVER;
+disconnect_reason({migrate, _OtherQueue, _From}) ->
+    ?DISCONNECT_MIGRATION;
+disconnect_reason({{cleanup, Reason}, _From}) ->
+    Reason;
+disconnect_reason(undefined) ->
+    ?SESSION_TAKEN_OVER.
 
 change_session_state(NewState, SessionPid, #state{id = SId, sessions = Sessions} = State) ->
     #session{queue = #queue{backup = Backup} = Queue} = Session = maps:get(SessionPid, Sessions),
@@ -1238,8 +1295,11 @@ cleanup_session(SubscriberId, #session{queue = #queue{queue = Q, backup = BQ}}) 
     cleanup_queue(SubscriberId, queue:join(Q, BQ)).
 
 %% optimization
-cleanup_queue(_, {[], []}) -> ok;
-cleanup_queue(SId, Queue) -> cleanup_queue_(SId, queue:out(Queue)).
+cleanup_queue(SId, Queue) ->
+    case queue:is_empty(Queue) of
+        true -> ok;
+        false -> cleanup_queue_(SId, queue:out(Queue))
+    end.
 
 cleanup_queue_(SId, {{value, #deliver{} = Msg}, NewQueue}) ->
     maybe_offline_delete(SId, Msg),

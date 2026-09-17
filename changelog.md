@@ -1,6 +1,68 @@
-- Enhancement: Don't log msg payload in pubauth errors.
-- Bugfix: active connections count for WS in metrics and listener info
+## VerneMQ 2.2.1
 
+- Bugfix: Fix stale local shared subscriptions after trie restart
+- Spec compliance: enforce non-zero message ids.
+- Bugfix: Aggregate labelless graphite metrics to summarize instead of drop metrics
+- Bugfix: Fix `vmq_swc` dot-key-map GC on standalone nodes by ensuring the local watermark row is initialized. 
+- Dependency: Update Hackney to 4.7.4
+- Enhancement: Add `connect_options` to vmq_webhooks, defaults to [{no_delay, true}]. Fixes
+  performance regression in Hackney (Nagle's).
+- Enchancement: Extend configuration for `syslog` to support remote SysLog logging
+
+## VerneMQ 2.2.0
+
+- Dependency: Update Hackney to 4.7.2.
+- vmq_webhooks: Improve webhook request handling by supporting cancellable auth webhook calls.
+- Adapt vmq_diversity to newer Luerl API return formats, related to Lua plugin loading and hook execution.
+- Dependency: Update Cuttlefish to 3.9.1
+- Dependency: Update Cowboy to 2.18.0
+- Dependency: Update Ranch to 2.2.1
+- Dependency: Update riak_sysmon to 2.2.1
+- Dependency: Update edown to 0.9.2
+- Dependency: Update clique to 0.3.8-verne
+- Dependency: Update mysql-otp to 1.9.0
+- Dependency: Update mongodb-erlang to 3.1.2
+- Dependency: Update credentials_obfuscation to 3.5.0
+- Dependency: Pin riak_dt to 2.1.4
+- Dependency: update rebar3 binary to 3.27.0
+- Enhancement: Bound SWC metadata sync calls and repair writes with configurable timeouts to prevent stalled peers or slow stores from blocking anti-entropy indefinitely. New hidden setting: ` vmq_swc.fast_call_timeout`
+- New feature: allow sharding of fanout scenarios to increase throughput and lower backpressure on high-frequency publishers. (includes new settings `fanout.shard_count` and `fanout.async_handoff`)
+- New per listener setting `active_n` to define the number of incoming TCP packets read
+- New feature: Listeners now can have individual authentication and authorization plugin chains (new `auth_n` and `auth_z` settings for named listeners).
+- Make VerneMQ run on Erlang/OTP 29.
+- Bugfix: Fix a session-takeover wedge where the queue could get stuck in `wait_for_offline` (never completing the takeover) when a draining session reported a state change instead of terminating. (#571, #1369)
+- Make VerneMQ run on Erlang/OTP 28.
+- Enhancement: Improved internode MQTT delivery with a connect-ack handshake, controlled by `outgoing_cluster_handshake_ack_timeout`, so cluster nodes only mark peers reachable after the receiving side has accepted the delivery connection.
+- Enhancement: Added bounded inbound buffering and frame validation for internode MQTT traffic, rejecting malformed or oversized cluster frames according to `incoming_clustering_buffer_size` instead of buffering them indefinitely.
+- Performance: Reduced internode delivery overhead by tracking pending outgoing bytes directly and batching writes with `outgoing_clustering_flush_threshold`.
+- Enhancement: Increased the default `outgoing_clustering_buffer_size` to better tolerate short peer disconnects and reconnect handshakes without dropping messages.
+- Performance (throughput) improvements for high-frequency SUBSCRIBES.
+- New global setting: `max_subscriptions_per_client`
+- Reduce memory effect of high-frequency SUBSCRIBES. (#2507)
+- Send out SUBACK only after local trie is updated. During trie initialization, update events are still buffered.
+- Bugfix: Make `vmq_diversity` more robust in case of script errors and plugin chains.
+- Add minimal Prometheus alarming template example
+- Set SWC init_sync procedure to off as a default.
+- Extend the `allow_anonymous_override` feature to WebSockets listeners.
+- vmq_diversity: Fix handling of v5 user property modifiers in `auth_on_publish_m5` and `on_deliver_m5`.
+- Enhancement: Parallel cluster readiness checks via erpc:multicall (5s total worst-case vs N*5s). New hidden setting: cluster_ready_rpc_timeout.
+- Extend `forward_connection_opts` to TCP and WS listeners and pass listener metadata to the extended `auth_on_register` and `auth_on_register_m5` hooks when enabled.
+
+## VerneMQ 2.1.3 RC1
+
+- Bugfix: closed connection count for mqtt listeners when there is an exception in the connection loop.
+- Enhancement: Disable `expire_retain_cache` as a default.
+- Enhancement: Make SWC store processes more robust in boot and re-spawn cases.
+
+## VerneMQ 2.1.2
+
+- HTTP status page: Full-page container for improved status page view - especially helpful on wider monitors.
+- XFF/WebSockets: Adapt the XFF trusted proxy validation to check against proxy IP, not last peer in XFF header.
+- vmq_reg_trie: Move from genserver2 to genserver for improved memory management.
+- Logging: Rejected/failed Subscribes are now logged as errors with SubscriberId and Peer info.
+- Bugfix: MQTT Session FSMs now send out SUBACKs for any error clause.
+- Enhancement: Don't log msg payload in pubauth errors.
+- Bugfix: active connections count for WS in metrics and listener info.
 
 ## VerneMQ 2.1.1
 
@@ -52,13 +114,13 @@
 - Breaking on-disk format enhancement: separate metadata stores into DKM store and object store.
 - Bugfix: Configuration parsing for domain sockets (#2372)
 - Dependency: Update Cuttlefish to 3.4.0
-- Retain Cache/Server: Add setting (`expire_retain_cache`) for automatic removal of expired retained messages (#2373) 
+- Retain Cache/Server: Add setting (`expire_retain_cache`) for automatic removal of expired retained messages (#2373)
 - vmq_diversity (PostGreSQL): Add method parameter to validate_result_client_side (#2361)
 - vmq_diversity: change mongodb-erlang dep to fork supporting MongoDB 6 (#2358)
 - Add NULL check in ensure_utf8 (#2356)
 - Enhancement: tighten max_packet_size checks in parsers (#2352)
 - Enhancement: Do not load non-persistent subscriptions into routing tables at boot (#2351)
-- Remove vmq_pulse (deprecated remote diagnostics plugin) (#2329) 
+- Remove vmq_pulse (deprecated remote diagnostics plugin) (#2329)
 - vmq_diversity: set SSL to 'off' as a default in MySQL2 plugin (#2340)
 - vmq_diversity: extend SSL options for MongoDB (#2324)
 - Initial support for compile with OTP-27 (#2293)
@@ -72,7 +134,7 @@
 - Bugfix: Client Pub Messages should not accept subscription identifier (#2283)
 - Enhancement: Support JSON Logformat on Console (#2295)
 - Bugfix: Ensure that client_id, username and topics are well-formed UTF8 strings (#2283)
-- Bugfix: Fix an auth issue with vmq_http_pub when using vmq_diversity (#2308) 
+- Bugfix: Fix an auth issue with vmq_http_pub when using vmq_diversity (#2308)
 - Bugfix: Correct SWC summary for empty Nodeclocks that prevented cluster joins in some situations
 - Enhancement (vmq_diversity): add "depth", "verify", "use_system_cas" and "customize_hostname_check" SSL settings to Postgres settings. Set server name indication to configured host automatically.
 - Bugfix: Per MQTT v5 protocol spec authentication data without authentication method is a protocol error.
@@ -93,7 +155,7 @@
 - Remove deprecated subscriber format (#2247)
 - Protect against empty XFF CN/Username
 - Add simple options to HTTP health listener (health/ping)
-- Remove deprecated allow_multiple_sessions 
+- Remove deprecated allow_multiple_sessions
 - Improve systemd support: Add support of systemd-notify
 - New feature: Allow downgrade of client stopped due to keepalive from warning to info message (logging.keepalive_as_warning = off)
 - Bugix: Persist QoS0 to disk in case of outgoing upgrade_qos (#2220)
@@ -113,13 +175,12 @@
 - New feature: Add configuration option disconnect_on_unauthorized_publish_v3 to force disconnect on unauthorized publish even for MQTT clients before v3.1.1
 - New feature: Add persistent message queueing functionality to `vmq_bridge` Plugin, using [ReplayQ](https://github.com/emqx/replayq)
 
-
 ## VerneMQ 1.13.0
 
 - New Plugin: 'vmq_http_pub', allows to ingest MQTT messages via a HTTP REST interface
 - Allow configuration of `max_request_line_length` for HTTP(S) listeners
 - Improve memory footprint and performance of sessions that subscribe to many topics (new configurable `vmq_reg_ordered_trie` module, the old `vmq_reg_trie` is kept as default)
-- Bugfix: Use default regview as information source for status page 
+- Bugfix: Use default regview as information source for status page
 - Add support for x-forward-for (XFF) header (Websockets) (#1783)
 - Bugfix: QoS0 message shall ignore receive maximum setting (#2150)
 - Offline queues to online queue transition can (temporarily) override the max online queue size (#1663)
@@ -135,7 +196,7 @@
 - Add 'keypasswd': Allows setting password for pem keyfile (#1676)
 - Bugfix: Improve warning messages for unexpected frame type error to track origin (#1671)
 - Bugfix: Remove special chars in auto-generated client id (#1673)
-- Bugfix: Websocket returned error 500 and wrote to log, instead of returning 426 (protocol upgrade) #1983 
+- Bugfix: Websocket returned error 500 and wrote to log, instead of returning 426 (protocol upgrade) #1983
 - Allow to specify a maximum connection lifetime (per listener). The lifetime can be overwriten by on_register hooks.
 - Improve TLSv1.3 support (Documentation, CLI, Testsuite)
 - Improve HTTP/2 support for HTTPS listeners (#2117)

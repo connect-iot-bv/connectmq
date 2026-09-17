@@ -42,6 +42,7 @@
 
 -export([
     auth_on_register/5,
+    auth_on_register/6,
     auth_on_publish/6,
     auth_on_subscribe/3,
     on_register/3,
@@ -55,6 +56,7 @@
     on_client_gone/1,
     on_session_expired/1,
     auth_on_register_m5/6,
+    auth_on_register_m5/7,
     on_register_m5/4,
     auth_on_publish_m5/7,
     on_publish_m5/7,
@@ -241,6 +243,26 @@ auth_on_register(Peer, SubscriberId, UserName, Password, CleanSession) ->
     ]),
     conv_res(auth_on_reg, Res).
 
+auth_on_register(Peer, SubscriberId, UserName, Password, CleanSession, Opts) ->
+    {PPeer, Port} = peer(Peer),
+    {MP, ClientId} = subscriber_id(SubscriberId),
+    Pwd =
+        case Password of
+            {encrypted, P} -> P;
+            P -> P
+        end,
+    Res = all_till_ok(auth_on_register, [
+        {addr, PPeer},
+        {port, Port},
+        {mountpoint, MP},
+        {client_id, ClientId},
+        {username, nilify(UserName)},
+        {password, nilify(Pwd)},
+        {clean_session, CleanSession}
+        | conn_opts(Opts)
+    ]),
+    conv_res(auth_on_reg, Res).
+
 auth_on_register_m5(Peer, SubscriberId, UserName, Password, CleanStart, Props) ->
     {PPeer, Port} = peer(Peer),
     {MP, ClientId} = subscriber_id(SubscriberId),
@@ -258,6 +280,27 @@ auth_on_register_m5(Peer, SubscriberId, UserName, Password, CleanStart, Props) -
         {password, nilify(Pwd)},
         {clean_start, CleanStart},
         {properties, conv_args_props(Props)}
+    ]),
+    conv_res(auth_on_reg, Res).
+
+auth_on_register_m5(Peer, SubscriberId, UserName, Password, CleanStart, Props, Opts) ->
+    {PPeer, Port} = peer(Peer),
+    {MP, ClientId} = subscriber_id(SubscriberId),
+    Pwd =
+        case Password of
+            {encrypted, P} -> P;
+            P -> P
+        end,
+    Res = all_till_ok(auth_on_register_m5, [
+        {addr, PPeer},
+        {port, Port},
+        {mountpoint, MP},
+        {client_id, ClientId},
+        {username, nilify(UserName)},
+        {password, nilify(Pwd)},
+        {clean_start, CleanStart},
+        {properties, conv_args_props(Props)}
+        | conn_opts(Opts)
     ]),
     conv_res(auth_on_reg, Res).
 
@@ -306,7 +349,10 @@ auth_on_publish_m5(UserName, SubscriberId, QoS, Topic, Payload, IsRetain, Props)
             ok;
         Modifiers when is_list(Modifiers) ->
             %% Found a valid cache entry containing modifiers
-            {ok, modifier_compat(auth_on_publish_m5, Modifiers)};
+            merge_user_property_modifier(
+                Props,
+                {ok, modifier_compat(auth_on_publish_m5, Modifiers)}
+            );
         false ->
             %% Found a valid cache entry which rejects this publish
             {error, not_authorized};
@@ -321,7 +367,7 @@ auth_on_publish_m5(UserName, SubscriberId, QoS, Topic, Payload, IsRetain, Props)
                 {retain, IsRetain},
                 {properties, conv_args_props(Props)}
             ]),
-            conv_res(auth_on_pub, Res)
+            merge_user_property_modifier(Props, conv_res(auth_on_pub, Res))
     end.
 
 on_publish_m5(UserName, SubscriberId, QoS, Topic, Payload, IsRetain, Props) ->
@@ -339,16 +385,19 @@ on_publish_m5(UserName, SubscriberId, QoS, Topic, Payload, IsRetain, Props) ->
 
 on_deliver_m5(UserName, SubscriberId, QoS, Topic, Payload, IsRetain, Props) ->
     {MP, ClientId} = subscriber_id(SubscriberId),
-    all_till_ok(on_deliver_m5, [
-        {username, nilify(UserName)},
-        {mountpoint, MP},
-        {client_id, ClientId},
-        {qos, QoS},
-        {topic, unword(Topic)},
-        {payload, Payload},
-        {retain, IsRetain},
-        {properties, conv_args_props(Props)}
-    ]).
+    merge_user_property_modifier(
+        Props,
+        all_till_ok(on_deliver_m5, [
+            {username, nilify(UserName)},
+            {mountpoint, MP},
+            {client_id, ClientId},
+            {qos, QoS},
+            {topic, unword(Topic)},
+            {payload, Payload},
+            {retain, IsRetain},
+            {properties, conv_args_props(Props)}
+        ])
+    ).
 
 auth_on_subscribe(UserName, SubscriberId, Topics) ->
     {MP, ClientId} = subscriber_id(SubscriberId),
@@ -689,14 +738,39 @@ all_till_ok([Pid | Rest], HookName, Args) ->
         false ->
             {error, lua_script_returned_false};
         error ->
-            {error, lua_script_error};
+            maybe_continue_on_error(HookName, Rest, Args, {error, lua_script_error});
         {error, Reason} ->
-            {error, Reason};
+            maybe_continue_on_error(HookName, Rest, Args, {error, Reason});
         _ ->
             all_till_ok(Rest, HookName, Args)
     end;
 all_till_ok([], _, _) ->
     next.
+
+maybe_continue_on_error(HookName, Rest, Args, Error) ->
+    case is_auth_hook(HookName) of
+        true ->
+            all_till_ok(Rest, HookName, Args);
+        false ->
+            Error
+    end.
+
+is_auth_hook(auth_on_register) ->
+    true;
+is_auth_hook(auth_on_register_m5) ->
+    true;
+is_auth_hook(auth_on_publish) ->
+    true;
+is_auth_hook(auth_on_publish_m5) ->
+    true;
+is_auth_hook(auth_on_subscribe) ->
+    true;
+is_auth_hook(auth_on_subscribe_m5) ->
+    true;
+is_auth_hook(on_auth_m5) ->
+    true;
+is_auth_hook(_) ->
+    false.
 
 all(HookName, Args) ->
     case ets:lookup(?TBL, HookName) of
@@ -730,6 +804,28 @@ nilify(undefined) ->
     nil;
 nilify(Val) ->
     Val.
+
+conn_opts(Opts) ->
+    maps:to_list(Opts#{
+        listener_addr => listener_addr(maps:get(listener_addr, Opts, undefined)),
+        listener_port => nilify(maps:get(listener_port, Opts, undefined)),
+        listener_type => listener_type(maps:get(listener_type, Opts, undefined))
+    }).
+
+listener_addr(undefined) ->
+    nil;
+listener_addr({local, _}) ->
+    <<"local">>;
+listener_addr(Addr) when is_tuple(Addr) ->
+    case inet:ntoa(Addr) of
+        {error, einval} -> nil;
+        AddrStr -> list_to_binary(AddrStr)
+    end.
+
+listener_type(undefined) ->
+    nil;
+listener_type(Type) ->
+    atom_to_binary(Type, utf8).
 
 extract_qos({QoS, _SubInfo}) -> QoS;
 extract_qos(QoS) when is_integer(QoS) -> QoS.
@@ -771,3 +867,27 @@ modifier_compat(auth_on_subscribe_m5, Mods) ->
     #{topics => Mods};
 modifier_compat(auth_on_publish_m5, Mods) ->
     maps:from_list(Mods).
+
+merge_user_property_modifier(InputProps, {ok, #{properties := ModProps} = Mods}) when
+    is_map(ModProps)
+->
+    case maps:find(?P_USER_PROPERTY, ModProps) of
+        {ok, ModUserProps} when is_list(ModUserProps) ->
+            InputUserProps = maps:get(?P_USER_PROPERTY, InputProps, []),
+            MergedUserProps = merge_user_properties(InputUserProps, ModUserProps),
+            MergedProps = maps:merge(InputProps, ModProps#{?P_USER_PROPERTY => MergedUserProps}),
+            {ok, Mods#{properties => MergedProps}};
+        _ ->
+            {ok, Mods#{properties => maps:merge(InputProps, ModProps)}}
+    end;
+merge_user_property_modifier(_, Other) ->
+    Other.
+
+merge_user_properties(InputUserProps, ModUserProps) ->
+    KeysToReplace = maps:from_list([{K, true} || K <- lists:usort([K || {K, _} <- ModUserProps])]),
+    KeptUserProps = [
+        {K, V}
+     || {K, V} <- InputUserProps,
+        not maps:is_key(K, KeysToReplace)
+    ],
+    KeptUserProps ++ ModUserProps.

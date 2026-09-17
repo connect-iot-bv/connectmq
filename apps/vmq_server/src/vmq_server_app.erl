@@ -27,8 +27,8 @@
 
 -spec start(_, _) -> {'error', _} | {'ok', pid()} | {'ok', pid(), _}.
 start(_StartType, _StartArgs) ->
-    ok = vmq_metadata:start(),
-    ok = vmq_message_store:start(),
+    ok = ensure_started(vmq_metadata:start()),
+    ok = ensure_started(vmq_message_store:start()),
     maybe_update_nodetool(),
     case vmq_server_sup:start_link() of
         {error, _} = E ->
@@ -86,10 +86,10 @@ maybe_update_nodetool() ->
             ]),
             case escript:extract(Nodetool, []) of
                 {ok, [Shebang, Comment, _, Source]} ->
-                    {ok, UpdatedScriptBin} =
-                        escript:create(binary, [
-                            Shebang, Comment, {emu_args, "+fnu -proto_dist " ++ ProtoDist}, Source
-                        ]),
+                    {ok, UpdatedScriptBin} = erlang:apply(escript, create, [
+                        binary,
+                        [Shebang, Comment, {emu_args, "+fnu -proto_dist " ++ ProtoDist}, Source]
+                    ]),
                     try file:write_file(Nodetool, UpdatedScriptBin) of
                         ok -> ok
                     catch
@@ -111,3 +111,8 @@ maybe_start_syslog() ->
         [] -> ignore;
         _ -> application:start(syslog)
     end.
+
+ensure_started(ok) ->
+    ok;
+ensure_started({error, already_enabled}) ->
+    ok.

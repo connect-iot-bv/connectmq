@@ -36,6 +36,12 @@ function auth_on_register(reg)
     assert(pwd == "test-password")
 
     assert(reg.clean_session == true)
+    if reg.client_id == "listener-info" then
+        assert(reg.listener_addr == "127.0.0.1")
+        assert(reg.listener_port == 1883)
+        assert(reg.listener_type == "mqtt")
+        return true
+    end
     if reg.client_id == "change-modifiers-id" then
        return {max_connection_lifetime = 4711, max_message_size = 1001}
     end
@@ -216,6 +222,12 @@ function auth_on_register_m5(reg)
     pwd = obf.decrypt(reg.password)
     assert(pwd == "test-password")
     assert(reg.clean_start == true)
+    if reg.client_id == "listener-info-m5" then
+       assert(reg.listener_addr == "127.0.0.1")
+       assert(reg.listener_port == 1883)
+       assert(reg.listener_type == "mqtt")
+       return true
+    end
     if reg.client_id == "changed-subscriber-id" then
         -- we must change subscriber_id
         print("auth_on_register_m5 changed subscriber_id called")
@@ -270,16 +282,18 @@ function auth_on_publish_m5(pub)
        assert(properties.p_payload_format_indicator == "utf8")
        assert(properties.p_content_type == "content_type")
        assert(properties.p_user_property[1].k1 == "v1")
-       assert(properties.p_user_property[2].k2 == "v2")
+       assert(properties.p_user_property[2].k1 == "v2")
+       assert(properties.p_user_property[3].k2 == "v2")
+       assert(properties.p_user_property[4].k4 == "v4")
 
        print("auth_on_publish_m5 changed called")
        return {properties =
-                  {p_correlation_data = "modified_correlation_data",
-                   p_response_topic = "modified/response/topic",
-                   p_payload_format_indicator = "undefined",
-                   p_content_type = "modified_content_type",
-                   p_user_property =
-                      {{k1 = "v1"}, {k2 = "v2"}, {k3 = "v3"}}}}
+                   {p_correlation_data = "modified_correlation_data",
+                    p_response_topic = "modified/response/topic",
+                    p_payload_format_indicator = "undefined",
+                    p_content_type = "modified_content_type",
+                    p_user_property =
+                       {{k1 = "v3"}, {k3 = "v3"}}}}
     elseif pub.client_id ~= "changed-subscriber-id" then
        print("auth_on_publish_m5 called")
        return validate_client_id(pub.client_id)
@@ -323,7 +337,9 @@ function on_deliver_m5(pub)
    assert(properties.p_payload_format_indicator == "utf8")
    assert(properties.p_content_type == "content_type")
    assert(properties.p_user_property[1].k1 == "v1")
-   assert(properties.p_user_property[2].k2 == "v2")
+   assert(properties.p_user_property[2].k1 == "v2")
+   assert(properties.p_user_property[3].k2 == "v2")
+   assert(properties.p_user_property[4].k4 == "v4")
 
    print("on_deliver_m5 called")
    return {properties =
@@ -332,7 +348,7 @@ function on_deliver_m5(pub)
                p_payload_format_indicator = "undefined",
                p_content_type = "modified_content_type",
                p_user_property =
-                  {{k1 = "v1"}, {k2 = "v2"}, {k3 = "v3"}}}}
+                   {{k1 = "v3"}, {k3 = "v3"}}}}
 end
 
 function auth_on_subscribe_m5(sub)

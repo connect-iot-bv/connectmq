@@ -38,6 +38,7 @@ register_config_() ->
             "queue_type",
             "retry_interval",
             "max_client_id_size",
+            "max_subscriptions_per_client",
             "persistent_client_expiration",
             "max_inflight_messages",
             "max_online_messages",
@@ -64,6 +65,7 @@ register_config_() ->
             "suppress_lwt_on_session_takeover",
             "coordinate_registrations",
             "mqtt_connect_timeout",
+            "cluster_ready_rpc_timeout",
             "disconnect_on_unauthorized_publish_v3",
             "subscriber_retain_mode"
         ],

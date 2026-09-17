@@ -23,6 +23,12 @@ init_per_group(mqtts, Config) ->
 init_per_group(mqttws, Config) ->
     Config1 = [{type, ws},{port, 1890}, {address, "127.0.0.1"}|Config],
     start_listener(Config1);
+init_per_group(mqttws_allow_anonymous_override, Config) ->
+    Config1 = [{type, ws},{port, 1893}, {address, "127.0.0.1"}, {allow_anonymous_override, true}|Config],
+    start_listener(Config1);
+init_per_group(mqttwss_allow_anonymous_override, Config) ->
+    Config1 = [{type, wss},{port, 1894}, {address, "127.0.0.1"}, {allow_anonymous_override, true}|Config],
+    start_listener(Config1);
 init_per_group(mqttwsp, Config) ->
     Config1 = [{type, ws},{port, 1891}, {address, "127.0.0.1"}, {proxy_protocol, true}|Config],
     start_listener(Config1);
@@ -34,7 +40,23 @@ init_per_group(mqttv4, Config) ->
     [{protover, 4}|start_listener(Config1)];
 init_per_group(mqttv5, Config) ->
     Config1 = [{type, tcp},{port, 1887}, {address, "127.0.0.1"}|Config],
-    [{protover, 5}|start_listener(Config1)].
+    [{protover, 5}|start_listener(Config1)];
+init_per_group(mqttv4_forward_connection_opts, Config) ->
+    Config1 = [{type, tcp}, {port, 1886}, {address, "127.0.0.1"},
+               {forward_connection_opts, true}|Config],
+    [{protover, 4}|start_listener(Config1)];
+init_per_group(mqttv5_forward_connection_opts, Config) ->
+    Config1 = [{type, tcp}, {port, 1885}, {address, "127.0.0.1"},
+               {forward_connection_opts, true}|Config],
+    [{protover, 5}|start_listener(Config1)];
+init_per_group(mqttws_forward_connection_opts, Config) ->
+    Config1 = [{type, ws}, {port, 1884}, {address, "127.0.0.1"},
+               {forward_connection_opts, true}|Config],
+    start_listener(Config1);
+init_per_group(mqttwss_forward_connection_opts, Config) ->
+    Config1 = [{type, wss}, {port, 1895}, {address, "127.0.0.1"},
+               {forward_connection_opts, true}|Config],
+    start_listener(Config1).
 
 
 end_per_group(_Group, Config) ->
@@ -55,10 +77,16 @@ all() ->
     [
      {group, mqtts},
      {group, mqttws},
+     {group, mqttws_allow_anonymous_override},
+     {group, mqttwss_allow_anonymous_override},
      {group, mqttwsp}, % ws with proxy protocol
      {group, mqttwsx}, % ws with xff headers
      {group, mqttv4},
-     {group, mqttv5}
+     {group, mqttv5},
+     {group, mqttv4_forward_connection_opts},
+     {group, mqttv5_forward_connection_opts},
+     {group, mqttws_forward_connection_opts},
+     {group, mqttwss_forward_connection_opts}
     ].
 
 groups() ->
@@ -77,15 +105,24 @@ groups() ->
         ],
     [
      {mqttv4, [shuffle,sequence],
-      [auth_on_register_change_username_test|Tests]},
+      [auth_on_register_change_username_test, auth_on_register_default_off_test | Tests]},
      {mqtts, [], Tests},
      {mqttws, [], [ws_protocols_list_test, ws_no_known_protocols_test] ++ Tests},
+     {mqttws_allow_anonymous_override, [], [anon_success_test]},
+     {mqttwss_allow_anonymous_override, [], [anon_success_test]},
      {mqttwsp, [], [ws_proxy_protocol_v1_test, ws_proxy_protocol_v2_test,
                     ws_proxy_protocol_localcommand_v1_test, ws_proxy_protocol_localcommand_v2_test]},
      {mqttwsx, [], [ws_xff_peer_test, ws_xff_peer_reject_no_user_test]},
                     %ws_xff_trusted_intermediate_ok_test, ws_xff_trusted_intermediate_fail_test,
                     %ws_xff_cn_as_username_test]},
-     {mqttv5, [auth_on_register_change_username_test, uname_anon_username_test_m5]}
+     {mqttv5, [
+      auth_on_register_change_username_test,
+      uname_anon_username_test_m5
+     ]},
+     {mqttv4_forward_connection_opts, [], [auth_on_register_listener_info_test]},
+     {mqttv5_forward_connection_opts, [], [auth_on_register_listener_info_m5_test]},
+     {mqttws_forward_connection_opts, [], [auth_on_register_listener_info_ws_test]},
+     {mqttwss_forward_connection_opts, [], [auth_on_register_listener_info_wss_test]}
     ].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -231,6 +268,66 @@ auth_on_register_change_username_test(Config) ->
       auth_on_register, ?MODULE, hook_change_username, 5),
     ok = close(Socket, Config).
 
+auth_on_register_default_off_test(Config) ->
+    Connect = packet:gen_connect("listener-off", [{keepalive, 10}]),
+    Connack = packet:gen_connack(0),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_default_off, 5
+    ),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_default_off_extended, 6
+    ),
+    {ok, Socket} = packet:do_client_connect(Connect, Connack, conn_opts(Config)),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_default_off, 5
+    ),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_default_off_extended, 6
+    ),
+    ok = close(Socket, Config).
+
+auth_on_register_listener_info_test(Config) ->
+    Connect = packet:gen_connect("listener-info-test", [{keepalive, 10}]),
+    Connack = packet:gen_connack(0),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+      auth_on_register, ?MODULE, hook_listener_info, 6),
+    {ok, Socket} = packet:do_client_connect(Connect, Connack, conn_opts(Config)),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+      auth_on_register, ?MODULE, hook_listener_info, 6),
+    ok = close(Socket, Config).
+
+auth_on_register_listener_info_m5_test(Config) ->
+    Connect = mqtt5_v4compat:gen_connect("listener-info-m5-test", [{keepalive, 10}], Config),
+    Connack = mqtt5_v4compat:gen_connack(success, Config),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+      auth_on_register_m5, ?MODULE, hook_listener_info_m5, 7),
+    {ok, Socket} = mqtt5_v4compat:do_client_connect(Connect, Connack, conn_opts(Config), Config),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+      auth_on_register_m5, ?MODULE, hook_listener_info_m5, 7),
+    ok = close(Socket, Config).
+
+auth_on_register_listener_info_ws_test(Config) ->
+    Connect = packet:gen_connect("listener-info-ws-test", [{keepalive, 10}]),
+    Connack = packet:gen_connack(0),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+      auth_on_register, ?MODULE, hook_listener_info_ws, 6),
+    {ok, Socket} = packet:do_client_connect(Connect, Connack, conn_opts(Config)),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+      auth_on_register, ?MODULE, hook_listener_info_ws, 6),
+    ok = close(Socket, Config).
+
+auth_on_register_listener_info_wss_test(Config) ->
+    Connect = packet:gen_connect("listener-info-wss-test", [{keepalive, 10}]),
+    Connack = packet:gen_connack(0),
+    ok = vmq_plugin_mgr:enable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_wss, 6
+    ),
+    {ok, Socket} = packet:do_client_connect(Connect, Connack, conn_opts(Config)),
+    ok = vmq_plugin_mgr:disable_module_plugin(
+        auth_on_register, ?MODULE, hook_listener_info_wss, 6
+    ),
+    ok = close(Socket, Config).
+
 ws_protocols_list_test(Config) ->
     Connect = packet:gen_connect("ws_protocols_list_test", [{keepalive,10}]),
     Connack = packet:gen_connack(5),
@@ -344,6 +441,57 @@ hook_change_username(_, _, <<"old_username">>, _, _) ->
 hook_on_register_changed_username(_, _, <<"new_username">>) ->
     ok.
 
+hook_listener_info(
+    _,
+    {"", <<"listener-info-test">>},
+    _,
+    _,
+    _,
+    #{
+        listener_addr := {127, 0, 0, 1},
+        listener_port := 1886,
+        listener_type := mqtt
+    }
+) ->
+    ok.
+
+hook_listener_info_m5(
+    _,
+    {"", <<"listener-info-m5-test">>},
+    _,
+    _,
+    _,
+    _,
+    #{
+        listener_addr := {127, 0, 0, 1},
+        listener_port := 1885,
+        listener_type := mqtt
+    }
+) ->
+    ok.
+
+hook_listener_info_ws(
+    _, {"", <<"listener-info-ws-test">>}, _, _, _,
+    #{listener_addr := {127, 0, 0, 1}, listener_port := 1884, listener_type := mqttws}
+) ->
+    ok.
+
+hook_listener_info_wss(
+    _, {"", <<"listener-info-wss-test">>}, _, _, _,
+    #{listener_addr := {127, 0, 0, 1}, listener_port := 1895, listener_type := mqttwss}
+) ->
+    ok.
+
+hook_listener_info_default_off(_, {"", <<"listener-off">>}, _, _, _) ->
+    ok.
+
+hook_listener_info_default_off_extended(
+    _, {"", <<"listener-off">>}, _, _, _, _
+) ->
+    {error, forward_connection_opts_should_be_off};
+hook_listener_info_default_off_extended(_, _, _, _, _, _) ->
+    next.
+
 hook_change_username_m5(_, _, <<"old_username">>, _, _, _) ->
     {ok, #{username => <<"new_username">>}}.
 
@@ -372,7 +520,7 @@ transport(Config) ->
         {type, ws} ->
             gen_tcp;
         {type, wss} ->
-            ssl;
+            vmq_ws_transport;
         {type, wsx} ->
             gen_tcp
     end.
@@ -393,6 +541,14 @@ conn_opts(Config) ->
                   ]}];
             ws ->
                 [{transport, vmq_ws_transport}, {conn_opts, []}];
+            wss ->
+                [{transport, vmq_ws_transport},
+                 {conn_opts,
+                  [
+                   {ssl, true},
+                   {verify, verify_none},
+                   {cacerts, load_cacerts()}
+                  ]}];
             wsx ->
                 [{transport, vmq_ws_transport}, {conn_opts, []}]
         end,
@@ -443,14 +599,21 @@ start_listener(Config) ->
                     {proxy_xff_use_cn_as_username, "true"},
                     {proxy_xff_cn_header, "x-ssl-client-cn"}];
             wss -> [{ssl, true},
-                 {nr_of_acceptors, 5},
-                 {cafile, ssl_path("all-ca.crt")},
+                  {nr_of_acceptors, 5},
+                  {cafile, ssl_path("all-ca.crt")},
                  {certfile, ssl_path("server.crt")},
                  {keyfile, ssl_path("server.key")},
                  {tls_version, "tlsv1.2"},
-                 {websocket, true}]
+                  {websocket, true}]
         end,
-    {ok, _} = vmq_server_cmd:listener_start(Port, Address, [ProtVers | Opts1]),
+    AllowAnonymousOverride = proplists:get_value(allow_anonymous_override, Config, false),
+    ForwardConnectionOpts = proplists:get_value(forward_connection_opts, Config, false),
+    {ok, _} = vmq_server_cmd:listener_start(
+        Port,
+        Address,
+        [{allow_anonymous_override, AllowAnonymousOverride},
+         {forward_connection_opts, ForwardConnectionOpts}, ProtVers | Opts1]
+    ),
     [{address, Address},{port, Port},{opts, Opts1}|Config].
 
 ssl_path(File) ->
